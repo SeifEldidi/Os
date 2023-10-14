@@ -21,7 +21,6 @@
 	#define NULL   			((void *)0)
 	#define STATIC			static
 	#define	__IO				volatile
-	#define INLINE_NAK		INLINE NAKED
 #endif
 
 #ifdef _ARMGCC_C_STM32F401CC
