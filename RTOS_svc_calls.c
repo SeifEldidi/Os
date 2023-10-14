@@ -6,17 +6,24 @@
  */
 #include "RTOS_svc_calls.h"
 
-extern   Task * CurrentTask ;
-extern   Task * IdleTaskPtr ;
-extern   uint8 HighestPriority ;
-extern   Queue  OsReadyQueue[ConfigPriorities];
-uint32	 KernelStack[RTOSKernelStackSize];
-uint32 	*KernelStackPtr = &KernelStack[RTOSKernelStackSize];
-extern uint8 KernelrStatus ;
+P2VAR(Task,AUTOMATIC,extern)  CurrentTask ;
+P2VAR(Task,AUTOMATIC,extern)  IdleTaskPtr ;
 
-void  OsSelectTask();
+VAR(extern uint8  ,AUTOMATIC) HighestPriority ;
+VAR(extern uint32 ,AUTOMATIC) OsTickCounter ;
+VAR(extern Queue,AUTOMATIC)  OsReadyQueue[ConfigPriorities];
+VAR(extern Queue,AUTOMATIC)  OsSystemWaitingList;
+VAR(uint32,AUTOMATIC)	     KernelStack[RTOSKernelStackSize];
+VAR(extern uint8,AUTOMATIC)  SchedulerStatus;
 
-void NAKED SVC_Handler(void)
+P2VAR(uint32 ,AUTOMATIC,AUTOMATIC) KernelStackPtr = &KernelStack[RTOSKernelStackSize];
+VAR(extern uint8 ,AUTOMATIC) KernelrStatus ;
+P2VAR(Task,AUTOMATIC,static) TaskHead ;
+
+FUNC(void,AUTOMATIC)  OsSelectTask();
+FUNC(void,AUTOMATIC)  OsDelayDecrement();
+
+FUNC(void,AUTOMATIC) NAKED SVC_Handler(void)
 {
   __asm(
     ".global SVC_Handler_Main\n"
@@ -29,7 +36,7 @@ void NAKED SVC_Handler(void)
   __asm volatile("BX LR");
 }
 
-void NAKED OSGetPrivlegde()
+FUNC(void,AUTOMATIC) NAKED OSGetPrivlegde()
 {
 	__asm volatile("MRS R0,CONTROL");
 	__asm volatile("AND R0,R0,#0xFFFFFFFC");
@@ -37,7 +44,7 @@ void NAKED OSGetPrivlegde()
 	__asm volatile("BX LR");
 }
 
-void NAKED OSReleasePrivlegde()
+FUNC(void,AUTOMATIC) NAKED OSReleasePrivlegde()
 {
 	__asm volatile("MOV R0,SP");
 	__asm volatile("MSR PSP,R0");
@@ -48,7 +55,7 @@ void NAKED OSReleasePrivlegde()
 }
 
 
-void NAKED SVC_Handler_Main( unsigned int *svc_args )
+FUNC(void,AUTOMATIC) NAKED SVC_Handler_Main( unsigned int *svc_args )
 {
   unsigned int svc_number = 0;
 
@@ -76,8 +83,23 @@ void NAKED SVC_Handler_Main( unsigned int *svc_args )
   __asm volatile("BX LR");
 }
 
+///Sytick Timer Code
+FUNC(void,AUTOMATIC) NAKED SysTick_Handler(void)
+{
+	//Needed for Load Equations
+	OsTickCounter++;
+	__asm volatile ("PUSH {R0,LR}");
+	/*---------Check Timing for Waiting Tasks -------*/
+	OsDelayDecrement();
+	__asm volatile ("POP  {R0,LR}");
+	/*------ Go To Dispatcher -------*/
+	ICSR = PENDSV_PENDING;
+	/*------ Return To Current Location ----*/
+	 __asm volatile("BX LR");
+}
+
 ///Dispatcher Code
-void NAKED PendSV_Handler(void)
+FUNC(void,AUTOMATIC) NAKED PendSV_Handler(void)
 {
 	CS_ON;
 	if(KernelrStatus != 1)
@@ -118,7 +140,7 @@ void NAKED PendSV_Handler(void)
 	 __asm volatile("BX LR");
 }
 
-void  OsSelectTask()
+FUNC(void,AUTOMATIC)  OsSelectTask()
 {
 	sint8 Priority = 0;
 	for(Priority = ConfigPriorities -1; Priority > 0 ;Priority--)
@@ -126,12 +148,41 @@ void  OsSelectTask()
 		if(OsReadyQueue[Priority].Front != NULL)
 		{
 			HighestPriority = Priority;
-			DequeQueueFront(&OsReadyQueue[Priority] ,(Task **)&CurrentTask);
+			DequeQueueFront(&OsReadyQueue[Priority] ,(Task **)&CurrentTask,NORMAL_QUEUE);
 			CurrentTask->OwnerList = NULL;
 			return ;
 		}else{
 		}
 	}
 	CurrentTask = IdleTaskPtr;
+}
+
+FUNC(void,AUTOMATIC) OsDelayDecrement()
+{
+	//if Scheduler is Running and Kernel is not shutdown check for delay Tasks
+	if(KernelrStatus == 0 && SchedulerStatus == 1)
+	{
+		TaskHead = OsSystemWaitingList.Front;
+		if(TaskHead != NULL)
+		{
+			while(TaskHead != NULL)
+			{
+				if(TaskHead->Timing.TaskSleepTime == 0)
+				{
+					//Remove Task from Blocked List on Time
+					DequeQueueElement(TaskHead->OwnerList ,(P2VAR(Task,AUTOMATIC,AUTOMATIC) )TaskHead,NORMAL_QUEUE);
+					//Set Current Task to Ready
+					TaskHead->TaskStatus->TaskState = READY;
+					TaskHead->OwnerList = &OsReadyQueue[TaskHead->TaskStatus->TaskPriority];
+					//Add Task to Ready List
+					InsertQueueTail(&OsReadyQueue[TaskHead->TaskStatus->TaskPriority] , TaskHead,NORMAL_QUEUE);
+
+				}else{
+					TaskHead->Timing.TaskSleepTime --;
+				}
+				TaskHead = TaskHead->Next;
+			}
+		}else{}
+	}else{}
 }
 

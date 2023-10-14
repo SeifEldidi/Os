@@ -7,17 +7,21 @@
 
 #include "OsKernel.h"
 
-uint8 SchedulerStatus;
-uint8 KernelrStatus;
-extern uint8 HighestPriority ;
+VAR(uint8,AUTOMATIC) SchedulerStatus;
 
-extern Queue OsReadyQueue[ConfigPriorities] ;
+VAR(uint8,AUTOMATIC) KernelrStatus;
 
-extern Task *CurrentTask ;
+VAR(extern uint8,AUTOMATIC) HighestPriority ;
 
-static Task MainFunction ;
+VAR(extern Queue,AUTOMATIC) OsReadyQueue[ConfigPriorities] ;
 
-Queue   OsKernelTrackTasksList ;
+P2VAR(extern Task,AUTOMATIC,AUTOMATIC) CurrentTask ;
+
+VAR(static Task,AUTOMATIC) MainFunction ;
+
+VAR(Queue,AUTOMATIC)   OsKernelTrackTasksList ;
+
+VAR(uint32,AUTOMATIC) OsTickCounter = 0;
 
 P2VAR(Task,AUTOMATIC,AUTOMATIC) IdleTaskPtr = NULL;
 
@@ -33,6 +37,18 @@ FUNC(static void,AUTOMATIC) IdleTask();
  * @brief Api to Initiliaze A dummy Task to point and return to the Main function
  */
 FUNC(static void,AUTOMATIC) MainTaskInit();
+/**
+ * @brief API to Initiliaze Systick Timer
+ */
+FUNC(static void,AUTOMATIC) OsSysInit()
+{
+	STK_LOAD  = OSCpuFreqSpeed/(1000UL);
+	/*----------Clear Systick Load Val -------*/
+	STK_VAL = 0;
+	/*----------Enable Systick Interrupt ------*/
+	STK_CTRL |= (1 << SYSTICK_TICK_INT);
+	STK_CTRL |= (1 << SYSTICK_CNT_EN);
+}
 /**
  * @brief Api to Switch to privleged Access Level
  */
@@ -60,10 +76,10 @@ FUNC(Std_ReturnType,AUTOMATIC) OsKernelStart()
 		//Start Scheduler
 		if(IdleTaskPtr != NULL)
 		{
+			/*------------- Init Systick Timer ---------------*/
+			OsSysInit();
 			//Create Task to Point To Main Function To Shutdown OS
 			MainTaskInit();
-			/*------------- Add Task To Kernel Task Lists to Track All Tasks in System in Case of Shutdown-------*/
-			InsertQueueTail(&OsKernelTrackTasksList, IdleTaskPtr);
 			/*------Init Systick Timer ------*/
 			SYSTICK_PRI |= (SYSTICK_PRI_LOWEST << SYSTICK_PRI_OFFSET);
 			SYSTICK_PRI |= (PENDSV_PRI_LOWEST << PENDSV_PRI_OFFSET);
@@ -75,7 +91,7 @@ FUNC(Std_ReturnType,AUTOMATIC) OsKernelStart()
 				CurrentTask = IdleTaskPtr;
 			/*------Select Highest Priority Task ----*/
 			else
-				DequeQueueFront(&OsReadyQueue[HighestPriority], &CurrentTask);
+				DequeQueueFront(&OsReadyQueue[HighestPriority], &CurrentTask,NORMAL_QUEUE);
 			/*------ Enter User Mode -------*/
 			/*-----Set Stack Pointer to PSP and No privelegde---*/
 			OsUserMode();
@@ -124,7 +140,9 @@ FUNC(Std_ReturnType,AUTOMATIC) OsKernelShutdown()
 			/*---------Move To Next Task----------*/
 			WalkList = WalkList->Next;
 			/*--------- Remove Task From Current List --------*/
-			DequeQueueElement(DeleteTask->OwnerList, DeleteTask);
+			DequeQueueElement(DeleteTask->OwnerList, DeleteTask,NORMAL_QUEUE);
+			/*--------- Remove Task From System List --------*/
+			DequeQueueElement(&OsKernelTrackTasksList, DeleteTask,SYSTEM_QUEUE);
 			/*------Release All Resources Of Task*/
 			DeleteTask->Next = NULL;
 			DeleteTask->Prev = NULL;

@@ -80,9 +80,9 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskCreate(VAR(uint8,OS_TYPE) TaskPriority,VAR(ui
 						CreatedTask->OwnerList = &OsReadyQueue[CreatedTask->TaskStatus->TaskPriority];
 						*TaskHandle = CreatedTask;
 						/*------------- Add Task To Kernel Task Lists to Track All Tasks in System in Case of Shutdown-------*/
-						InsertQueueTail(&OsKernelTrackTasksList , CreatedTask);
+						InsertQueueTail(&OsKernelTrackTasksList , CreatedTask ,SYSTEM_QUEUE );
 						/*------------- Add Task To Ready Queue but Check if a running Task is preempted only if Scheduler is Running-------*/
-						InsertQueueTail(&OsReadyQueue[CreatedTask->TaskStatus->TaskPriority],CreatedTask);
+						InsertQueueTail(&OsReadyQueue[CreatedTask->TaskStatus->TaskPriority],CreatedTask , NORMAL_QUEUE);
 						/*--------Find Highest Priority ----------*/
 						if(HighestPriority < CreatedTask->TaskStatus->TaskPriority)
 							HighestPriority = CreatedTask->TaskStatus->TaskPriority;
@@ -94,7 +94,7 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskCreate(VAR(uint8,OS_TYPE) TaskPriority,VAR(ui
 							{
 								//Add Current List to Ready Queue
 								CurrentTask->TaskStatus->TaskState = READY;
-								InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority],CurrentTask);
+								InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority],CurrentTask,NORMAL_QUEUE );
 								///Request A context Switch
 								OS_DISPATCHER;
 							}else{
@@ -143,7 +143,9 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskKill(P2VAR(Task,OS_TYPE,OS_TYPE) TaskHandle)
 			OS_DISPATCHER;
 		}else{
 			//Remove from Current List
-			DequeQueueElement(TaskHandle->OwnerList, TaskHandle);
+			DequeQueueElement(TaskHandle->OwnerList, TaskHandle,NORMAL_QUEUE );
+			//Remove from System Queue
+			DequeQueueElement(TaskHandle->OwnerList, TaskHandle,SYSTEM_QUEUE );
 			/*------Release All Resources Of Task*/
 			TaskHandle->Next = NULL;
 			TaskHandle->Prev = NULL;
@@ -185,12 +187,12 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskSetPriority(P2VAR(Task,OS_TYPE,OS_TYPE) TaskH
 				//Add Current Task to Ready Queue
 				HighestPriority = Priority;
 				CurrentTask->TaskStatus->TaskState = READY;
-				InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority],CurrentTask);
+				InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority],CurrentTask,NORMAL_QUEUE);
 				//Remove Task from Ready of Previous to new Queue
 				TaskHandle->TaskStatus->TaskState = RUNNING;
-				DequeQueueElement(TaskHandle->OwnerList,TaskHandle);
+				DequeQueueElement(TaskHandle->OwnerList,TaskHandle,NORMAL_QUEUE);
 				TaskHandle->TaskStatus->TaskPriority = Priority;
-				InsertQueueTail(&OsReadyQueue[Priority],TaskHandle);
+				InsertQueueTail(&OsReadyQueue[Priority],TaskHandle,NORMAL_QUEUE);
 				//Request Context Switch won't Be activated until critcial Section is executed
 				OS_DISPATCHER;
 			}else{
@@ -265,23 +267,23 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskSleep(P2VAR(Task,OS_TYPE,OS_TYPE) TaskHandle)
 		if(TaskHandle == NULL)
 		{
 			//Remove from Current List
-			DequeQueueElement(CurrentTask->OwnerList, CurrentTask);
+			DequeQueueElement(CurrentTask->OwnerList, CurrentTask,NORMAL_QUEUE);
 
 			//Set Task State to Blocked
 			CurrentTask->OwnerList =(P2VAR(void,OS_TYPE,OS_TYPE)) &OsSystemList;
 			CurrentTask->TaskStatus->TaskState = BLOCKED;
 			//Add Task to List of system Tasks
-			InsertQueueSorted(&OsSystemList,CurrentTask);
+			InsertQueueSorted(&OsSystemList,CurrentTask,NORMAL_QUEUE);
 			//Request a context switch to Switch to another task
 			OS_DISPATCHER;
 		}else{
 			//Remove from Current List
-			DequeQueueElement(TaskHandle->OwnerList,TaskHandle);
+			DequeQueueElement(TaskHandle->OwnerList,TaskHandle,NORMAL_QUEUE);
 			//Set Task State to Blocked
 			TaskHandle->TaskStatus->TaskState = BLOCKED;
 			TaskHandle->OwnerList =(P2VAR(void,OS_TYPE,OS_TYPE)) &OsSystemList;
 			//Add Task to List of system Tasks
-			InsertQueueSorted(&OsSystemList, CurrentTask);
+			InsertQueueSorted(&OsSystemList, CurrentTask,NORMAL_QUEUE);
 		}
 	}else{
 		Ret = E_NOT_OK;
@@ -304,21 +306,26 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskWakeup(P2VAR(Task,OS_TYPE,OS_TYPE) TaskHandle
 			Ret = E_NOT_OK;
 		} else {
 			//Remove from Current List
-			DequeQueueElement(TaskHandle->OwnerList, TaskHandle);
-			//Set State to Ready
-			TaskHandle->OwnerList =(P2VAR(void,OS_TYPE,OS_TYPE)) &OsReadyQueue[TaskHandle->TaskStatus->TaskPriority];
-			TaskHandle->TaskStatus->TaskState = READY;
-			InsertQueueTail(&OsReadyQueue[TaskHandle->TaskStatus->TaskPriority], TaskHandle);
-			//Request Context Switch if priority is Higher than Current Task
-			if(TaskHandle->TaskStatus->TaskPriority > CurrentTask->TaskStatus->TaskPriority)
+			if(TaskHandle->OwnerList != &OsSystemWaitingList)
 			{
-				//Add Current Task to Ready List
-				InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority], CurrentTask);
-				CurrentTask->TaskStatus->TaskState = READY;
-				TaskHandle->TaskStatus->TaskState = RUNNING;
-				OS_DISPATCHER;
-			}else{
+				DequeQueueElement(TaskHandle->OwnerList, TaskHandle,NORMAL_QUEUE);
+				//Set State to Ready
+				TaskHandle->OwnerList =(P2VAR(void,OS_TYPE,OS_TYPE)) &OsReadyQueue[TaskHandle->TaskStatus->TaskPriority];
+				TaskHandle->TaskStatus->TaskState = READY;
+				InsertQueueTail(&OsReadyQueue[TaskHandle->TaskStatus->TaskPriority], TaskHandle,NORMAL_QUEUE);
+				//Request Context Switch if priority is Higher than Current Task
+				if(TaskHandle->TaskStatus->TaskPriority > CurrentTask->TaskStatus->TaskPriority)
+				{
+					//Add Current Task to Ready List
+					InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority], CurrentTask,NORMAL_QUEUE);
+					CurrentTask->TaskStatus->TaskState = READY;
+					TaskHandle->TaskStatus->TaskState = RUNNING;
+					OS_DISPATCHER;
+				}else{
 
+				}
+			}else{
+				Ret = E_NOT_OK;
 			}
 		}
 	}else{
@@ -345,12 +352,12 @@ FUNC(Std_ReturnType,OS_CODE) OsTaskDelay(VAR(uint32,OS_TYPE) DelayTime)
 			CurrentTask->TaskStatus->TaskState = BLOCKED;
 			CurrentTask->OwnerList = (P2VAR(void,OS_TYPE,OS_TYPE)) &OsSystemWaitingList;
 			//Add Task to List of system Tasks
-			InsertQueueSorted(&OsSystemWaitingList, CurrentTask);
+			InsertQueueSorted(&OsSystemWaitingList, CurrentTask,NORMAL_QUEUE);
 			//Request a context switch to Switch to another task
 			OS_DISPATCHER;
 		}else{
 			//Add Task to Ready Queue
-			InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority], CurrentTask);
+			InsertQueueTail(&OsReadyQueue[CurrentTask->TaskStatus->TaskPriority], CurrentTask,NORMAL_QUEUE);
 			//Request Context Switch
 			OS_DISPATCHER;
 		}

@@ -16,6 +16,16 @@
 #define IDLE_TASK_PRIORITY 	0
 #define IDLE_TASK_STACK		RTOSKernelStackSize
 
+/** Systick Registers **/
+#define STK_CTRL				*((__IO uint32 *)(0xE000E010UL))
+#define STK_LOAD				*((__IO uint32 *)(0xE000E014UL))
+#define STK_VAL					*((__IO uint32 *)(0xE000E018UL))
+#define STK_CALIB				*((__IO uint32 *)(0xE000E01CUL))
+
+/** Systick Masks **/
+#define SYSTICK_TICK_INT		1U
+#define SYSTICK_CNT_EN			0U
+#define SYSTICK_AHB_PRE			2U
 #define SYSTICK_PRI_OFFSET		28U
 #define PENDSV_PRI_OFFSET		20U
 #define PENDSV_PRI_LOWEST		0x0FU

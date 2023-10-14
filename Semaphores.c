@@ -21,7 +21,7 @@ LOCAL_INLINE void  BlockCurrentTask(P2VAR(Semaphore, AUTOMATIC, AUTOMATIC) Handl
 	CurrentTask->OwnerList = Handler->SemaphoreBlockingQueue;
 	CurrentTask->TaskStatus->TaskState = BLOCKED;
 	//Add List to Sempahore Waiting List
-	InsertQueueSorted(Handler->SemaphoreBlockingQueue, CurrentTask);
+	InsertQueueSorted(Handler->SemaphoreBlockingQueue, CurrentTask,NORMAL_QUEUE);
 }
 /**
  * @brief API to Signal for Semaphore or Mutex
@@ -38,15 +38,15 @@ STATIC void OsSemphMutexSig(P2VAR(Semaphore, AUTOMATIC, AUTOMATIC) Handler)
 			VAR(uint8,AUTOMATIC) Priority_Curr =CurrentTask->TaskStatus->TaskPriority;
 			VAR(uint8,AUTOMATIC) Priority_Rel = 0;
 			//Remove The Last Task Requesting Semaphore
-			DequeQueueFront(Handler->SemaphoreBlockingQueue,&TaskHandle);
+			DequeQueueFront(Handler->SemaphoreBlockingQueue,&TaskHandle,NORMAL_QUEUE);
 			Priority_Rel = TaskHandle->TaskStatus->TaskPriority;
 			//Set to Ready
 			TaskHandle->OwnerList = &OsReadyQueue[Priority_Rel];
 			TaskHandle->TaskStatus->TaskState = READY;
 			//Check if the Released Task is Higher in Priority
-			InsertQueueTail(&OsReadyQueue[Priority_Rel], TaskHandle);
+			InsertQueueTail(&OsReadyQueue[Priority_Rel], TaskHandle,NORMAL_QUEUE);
 			if (Priority_Rel > Priority_Curr) {
-				InsertQueueTail(&OsReadyQueue[Priority_Curr], CurrentTask);
+				InsertQueueTail(&OsReadyQueue[Priority_Curr], CurrentTask,NORMAL_QUEUE);
 				//Reqeust Context Switch
 				OS_DISPATCHER;
 			} else {
@@ -144,12 +144,12 @@ FUNC(Std_ReturnType , AUTOMATIC) OsSemaphoreDelete(VAR(SemaphoreHandle,AUTOMATIC
 		//Dequeu all Tasks from Queue
 		while(QueueHead != NULL)
 		{
-			DequeQueueFront(SemaphoreHandle->SemaphoreBlockingQueue ,&TaskHandle);
+			DequeQueueFront(SemaphoreHandle->SemaphoreBlockingQueue ,&TaskHandle,NORMAL_QUEUE);
 			//Add Task To suspended List
 			TaskHandle->OwnerList  = &OsSystemList;
 			CurrentTask->TaskStatus->TaskState = SUSPENDED;
 			//Add to Suspended Queue since Queue is Sorted Add to Tail of OsSystemList
-			InsertQueueTail(&OsSystemList , TaskHandle);
+			InsertQueueTail(&OsSystemList , TaskHandle,NORMAL_QUEUE);
 			//Proceed to Next Task
 			QueueHead = QueueHead->Next;
 		}
@@ -285,12 +285,12 @@ FUNC(Std_ReturnType , AUTOMATIC) OsSemaphoreReset(VAR(SemaphoreHandle,AUTOMATIC)
 
 		//Dequeu all Tasks from Queue and Add to Ready Queue
 		while (QueueHead != NULL) {
-			DequeQueueFront(SemaphoreHandle->SemaphoreBlockingQueue,&TaskHandle);
+			DequeQueueFront(SemaphoreHandle->SemaphoreBlockingQueue,&TaskHandle,NORMAL_QUEUE);
 			//Add Task To suspended List
 			TaskHandle->OwnerList  = &OsReadyQueue[TaskHandle->TaskStatus->TaskPriority];
 			CurrentTask->TaskStatus->TaskState = READY;
 			//Add to Suspended Queue since Queue is Sorted Add to Tail of OsSystemList
-			InsertQueueTail(&OsReadyQueue[TaskHandle->TaskStatus->TaskPriority], TaskHandle);
+			InsertQueueTail(&OsReadyQueue[TaskHandle->TaskStatus->TaskPriority], TaskHandle,NORMAL_QUEUE);
 			//Proceed to Next Task
 			if(TaskHandle->TaskStatus->TaskPriority > Priority)
 			{

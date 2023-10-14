@@ -8,7 +8,7 @@
 #ifndef RTOSCONFIG_H_
 #define RTOSCONFIG_H_
 
-
+#define OSCpuFreqSpeed			16000000UL
 #define ConfigPriorities		5
 #define RTOSKernelStackSize  	100
 
